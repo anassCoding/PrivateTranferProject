@@ -161,30 +161,30 @@ def main():
  
     result_df = pd.DataFrame(result_rows)
     print(result_df)
- 
-    if OUTPUT_DATASET_NAME:
-        dataiku.Dataset(OUTPUT_DATASET_NAME).write_with_schema(result_df)
- 
-    ok_count = sum(1 for r in result_rows if r["status"] == "ok")
-    total_count = len(result_rows)
- 
-    if PROCEED_MODE == "all":
-        should_proceed = (ok_count == total_count) and total_count > 0
-    else:  # "any"
-        should_proceed = ok_count > 0
- 
-    if not should_proceed:
-        print("No qualifying newer data found (per PROCEED_MODE) — stopping scenario, "
+
+    # Rows that actually have new data -- this is what downstream steps consume.
+    ready_df = result_df[result_df["status"] == "ok"][
+        ["flow_name", "variable_key", "max_timestamp_folder_path", "max_timestamp"]
+    ].reset_index(drop=True)
+
+    if not OUTPUT_DATASET_NAME:
+        raise Exception("OUTPUT_DATASET_NAME must be set -- downstream steps depend on it.")
+
+    dataiku.Dataset(OUTPUT_DATASET_NAME).write_with_schema(ready_df)
+    print(f"Wrote {len(ready_df)} ready-to-process flow(s) to '{OUTPUT_DATASET_NAME}'.")
+
+    if ready_df.empty:
+        print("No flow has data newer than its recorded timestamp -- stopping scenario, "
               "remaining steps will not run.")
         scenario.abort()
         return
- 
+
     # Write the updated variables back to the project (only qualifying flows
     # change; anything left untouched keeps its previous value).
     project_vars.update(updates)
     variables["standard"] = project_vars
     project.set_variables(variables)
- 
+
     print(f"Updated project variables: {updates}")
     print("Proceeding to next scenario step.")
  
